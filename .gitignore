@@ -1,0 +1,19 @@
+# R/RStudio
+.Rproj.user/
+.Rhistory
+.RData
+.Ruserdata
+
+# Outputs
+results/
+*.xlsx
+*.rds
+*.RData
+*.pdf
+*.png
+*.svg
+*.log
+
+# OS
+.DS_Store
+Thumbs.db
