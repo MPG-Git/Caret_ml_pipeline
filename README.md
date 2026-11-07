@@ -155,4 +155,4 @@ an independent final test cohort must be designed for the study.
 [Run the bundled synthetic example](examples/synthetic/README.md) to check your setup against
 included reference outputs. It contains actual input files, a one-command runner,
 expected tables/plots, and numerical comparisons that report PASS or a mismatch.
-The example guide links to the ZIP of this review branch, including the readiness fixes.
+The example guide links to the main-branch ZIP, including the readiness fixes.
