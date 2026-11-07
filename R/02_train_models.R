@@ -11,7 +11,10 @@ suppressPackageStartupMessages({
   library(doParallel)
 })
 
-source("R/00_functions.R")
+script_arg <- grep("^--file=", commandArgs(FALSE), value = TRUE)
+script_dir <- dirname(normalizePath(sub("^--file=", "", script_arg[[1]])))
+source(file.path(script_dir, "00_functions.R"))
+source(file.path(script_dir, "xgb_compat.R"))
 
 # ------------------------
 # CLI options
@@ -46,7 +49,7 @@ option_list <- list(
               help="Optional comma-separated class labels to use instead of defaults (ClassA,ClassB,...)")
 )
 
-opt <- parse_args(OptionParser(option_list=option_list))
+opt <- parse_args(OptionParser(option_list=option_list), convert_hyphens = TRUE)
 ensure_dir(opt$outdir)
 
 # Log run parameters
@@ -91,7 +94,7 @@ cat("Formula:\n"); print(formula)
 # ------------------------
 cores <- opt$cores
 if (cores <= 0) {
-  cores <- max(1L, parallel::detectCores() - 1L)
+  cores <- max(1L, min(4L, parallel::detectCores() - 1L))
 }
 if (cores > 1) {
   cl <- parallel::makeCluster(cores)
@@ -105,6 +108,8 @@ if (cores > 1) {
 # Outer repeats
 # ------------------------
 resampling_strategies <- unique(unlist(strsplit(opt$resampling, ",")))
+if (any(!resampling_strategies %in% c("up", "down", "smote")))
+  stop("Resampling must be up, down, or smote.")
 models_requested <- unique(unlist(strsplit(opt$models, ",")))
 
 all_external <- list()
@@ -136,8 +141,8 @@ for (i in seq_len(opt$repeats)) {
 
   if ("smote" %in% resampling_strategies) {
     cat("Training with SMOTE...\n")
-    train_smote <- smote_train_data(train_df, predictors = preds, class_col = opt$class_col, k = 5)
-    models_smote <- train_models(formula, data = train_smote, ctrl = ctrl_base,
+    ctrl_smote <- make_train_control(opt$cv_folds, opt$cv_repeats, sampling = "smote", allow_parallel = (cores > 1))
+    models_smote <- train_models(formula, data = train_df, ctrl = ctrl_smote,
                                  tune_length = opt$tune_length, methods = models_requested)
   } else models_smote <- NULL
 
@@ -149,7 +154,7 @@ for (i in seq_len(opt$repeats)) {
 
   model_sets <- model_sets[!vapply(model_sets, is.null, logical(1))]
   cat(sprintf("Models trained in this repeat: %d\n", length(model_sets)))
-  if (length(model_sets) == 0) next
+  if (length(model_sets) == 0) stop("No models trained; check model and resampling options.")
 
   # External evaluation
   ext_tbl <- evaluate_external(model_sets, test_df, class_col = opt$class_col)
@@ -179,7 +184,7 @@ if (nrow(external_combined)) {
   summary_tbl <- summarize_external(external_combined)
   safe_write_csv(summary_tbl, file.path(opt$outdir, "External_Validation_Summary.csv"))
 } else {
-  warning("External validation table is empty.")
+  stop("External validation table is empty; no successful run to report.")
 }
 
 if (nrow(overfit_combined)) {
