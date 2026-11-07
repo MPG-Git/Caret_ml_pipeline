@@ -109,10 +109,43 @@ Rscript R/02_train_models.R \
 ## Notes
 
 - This template **anonymizes** labels and uses **generic predictor names** in examples. Your real CSV can use any column names; specify them with `--predictors` or rely on `--predictors auto`.
-- SMOTE is applied **prior to training** using `smotefamily::SMOTE` on scaled numeric predictors, then caret trains with standard repeated CV. Upsampling and downsampling use caret's built-in sampling.
+- SMOTE, upsampling and downsampling run inside caret's training folds. SMOTE uses `themis`; external validation cases are never resampled.
 - Hyperparameters: by default the script uses `tuneLength` to keep grids generic. You can swap in explicit `tuneGrid` in `train_models()` for domain-specific work.
 - Excel outputs with custom formatting were removed to stay lightweight. If desired, you can write `.xlsx` via `openxlsx::write.xlsx()`.
 
 ## License
 
 MIT
+# Setup and verified workflow
+
+This is a standalone R pipeline, not an EEGLAB plugin. Export one row per
+participant to CSV, with a classification outcome and predictor columns.
+Use R 4.5.1 or a compatible newer R installation. From the repository root:
+
+```sh
+Rscript R/01_install_libs.R
+Rscript tests/smoke.R
+Rscript R/02_train_models.R --data data/dummy_data.csv --outdir results --class-col class --id-col id --models LOG,RF,SVM,NNET,C50,XGB --resampling up,down,smote --cv-folds 3 --cv-repeats 1 --tune-length 1 --repeats 1 --cores 1
+```
+
+The bounded smoke test checks all six learners with all three sampling
+strategies, validates 18 output rows, and checks a failing configuration.
+The production defaults use larger repeated cross-validation grids and take
+longer. `--cores 0` uses at most four workers; choose an explicit count for
+larger machines. Relative data/output paths are relative to the shell's
+working directory; the script's helper paths are resolved independently.
+
+SMOTE now runs inside each training fold using caret/themis, preserving the
+held-out cases and predictor units. Train accuracy is computed from training
+predictions; CV accuracy comes from the chosen tuning configuration. Model
+errors stop the run instead of being reported as success. XGBoost 3 is handled
+through a separate booster wrapper compatible with caret's metadata.
+
+Verified on R 4.5.1 with XGBoost 3.2.1.1. Synthetic/demo-data execution checks
+software behavior, not predictive performance for a particular study. Repeated
+random splits overlap, so the summary's normal-approximation interval columns
+are descriptive and must not be treated as independent-sample confidence
+intervals. Participant grouping, temporal splits, missing-data handling and
+an independent final test cohort must be designed for the study.
+
+---

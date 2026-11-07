@@ -4,11 +4,9 @@
 
 pkgs <- c(
   "caret", "e1071", "nnet", "randomForest", "xgboost", "C50",
-  "pROC", "PRROC",
-  "smotefamily", "ROSE",
-  "dplyr", "readr", "tidyr", "purrr", "ggplot2",
+  "pROC", "themis", "kernlab", "MLmetrics",
+  "dplyr", "readr", "purrr",
   "doParallel", "foreach", "parallel",
-  "openxlsx", "writexl",
   "optparse"
 )
 
@@ -17,7 +15,7 @@ install_if_missing <- function(pkgs) {
   for (p in pkgs) {
     if (!p %in% ip) {
       message(sprintf("Installing: %s", p))
-      install.packages(p, dependencies = TRUE)
+      install.packages(p, repos = "https://cloud.r-project.org")
     } else {
       message(sprintf("Already installed: %s", p))
     }

@@ -6,7 +6,6 @@ suppressPackageStartupMessages({
   library(dplyr)
   library(readr)
   library(purrr)
-  library(smotefamily)
   library(pROC)
 })
 
@@ -68,33 +67,9 @@ make_split <- function(df, class_col, p_train = 0.7, seed = 1L) {
 }
 
 #-------------------------------
-# SMOTE (external to caret, on predictors only)
-#-------------------------------
-smote_train_data <- function(train_df, predictors, class_col, k = 5) {
-  X <- train_df[, predictors, drop = FALSE]
-  # Scale numeric predictors only
-  num_cols <- sapply(X, is.numeric)
-  X[, num_cols] <- scale(X[, num_cols])
-  # smotefamily needs numeric target (1..K)
-  y_fac <- factor(train_df[[class_col]])
-  y_num <- as.numeric(y_fac)
-  sm <- smotefamily::SMOTE(X = X, target = y_num, K = k)
-  dat <- sm$data
-  # 'class' may be present; ensure we treat the final class column consistently
-  cls_col <- if ("class_final" %in% names(dat)) "class_final" else if ("class" %in% names(dat)) "class" else NULL
-  if (is.null(cls_col)) stop("SMOTE output missing class column.")
-  # Create factor with original labels
-  levels_orig <- levels(y_fac)
-  dat[[class_col]] <- factor(dat[[cls_col]], levels = seq_along(levels_orig), labels = levels_orig)
-  # Assign predictor names back
-  colnames(dat)[seq_along(predictors)] <- predictors
-  dat[, c(predictors, class_col), drop = FALSE]
-}
-
-#-------------------------------
 # Train control
 #-------------------------------
-make_train_control <- function(cv_folds = 10, cv_repeats = 5, sampling = c("none","up","down"),
+make_train_control <- function(cv_folds = 10, cv_repeats = 5, sampling = c("none","up","down","smote"),
                                allow_parallel = TRUE) {
   sampling <- match.arg(sampling)
   summary_fun <- if (exists("multiClassSummary", where = asNamespace("caret"), inherits = FALSE)) {
@@ -118,7 +93,7 @@ make_train_control <- function(cv_folds = 10, cv_repeats = 5, sampling = c("none
 #-------------------------------
 # Model training
 #-------------------------------
-safe_train <- function(...) tryCatch(caret::train(...), error = function(e) { message(e); NULL })
+safe_train <- function(...) caret::train(...)
 
 train_models <- function(formula, data, ctrl, tune_length = 3, methods = c("RF","SVM","XGB","NNET","C50","LOG")) {
   out <- list()
@@ -132,8 +107,11 @@ train_models <- function(formula, data, ctrl, tune_length = 3, methods = c("RF",
     LOG  = list(method = "multinom", args = list(trace = FALSE))
   )
   for (m in methods) {
-    if (!m %in% names(method_map)) next
+    if (!m %in% names(method_map)) stop("Unknown model: ", m)
     spec <- method_map[[m]]
+    if (m == "XGB" && utils::packageVersion("xgboost") >= "3.0.0") {
+      spec$method <- xgb_caret_model()
+    }
     args <- c(list(form = formula, data = data, method = spec$method,
                    trControl = ctrl, tuneLength = tune_length), spec$args)
     fit <- do.call(safe_train, args)
@@ -150,9 +128,9 @@ detect_overfit_underfit <- function(model, model_name,
                                     underfit_acc = 0.45,
                                     min_train_acc = 0.70) {
   if (is.null(model) || is.null(model$results) || !"Accuracy" %in% names(model$results)) return(NULL)
-  # Heuristic: treat max(Accuracy) as train-like, mean(Accuracy) as CV-like summary
-  train_acc <- max(model$results$Accuracy, na.rm = TRUE)
-  cv_acc    <- mean(model$results$Accuracy, na.rm = TRUE)
+  train_acc <- mean(predict(model, newdata = model$trainingData) == model$trainingData$.outcome)
+  chosen <- merge(model$results, model$bestTune, by = names(model$bestTune))
+  cv_acc <- chosen$Accuracy[[1]]
   diff <- train_acc - cv_acc
   status <- if (diff > overfit_diff && train_acc > min_train_acc) {
     "Overfitting"
